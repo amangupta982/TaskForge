@@ -1,0 +1,25 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: TaskForge DAG Scheduler
+  jackson:
+    serialization:
+      indent-output: true
+    default-property-inclusion: non_null
+    time-zone: UTC
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.taskforge: DEBUG
+    org.springframework.web: INFO
