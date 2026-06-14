@@ -69,11 +69,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      - name: Check for compilation warnings
-        run: mvn clean compile 2>&1 | tee compile-output.txt; exit 0
+      - name: Check compilation warnings
+        run: mvn clean compile 2>&1; exit 0
 
-      - name: Verify test coverage runs
-        run: mvn test --fail-at-end 2>&1 | tail -20
+      - name: Verify all tests pass
+        run: mvn test --fail-at-end
 
   docker-build:
     name: Docker Build Check
@@ -98,15 +98,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      - name: Build JAR for Docker
+      - name: Build JAR
         run: mvn clean package -DskipTests -q
 
       - name: Build Docker image
         run: docker build -t taskforge:${{ github.sha }} .
 
-      - name: Verify Docker image runs
+      - name: Verify Docker container starts
         run: |
           docker run -d --name taskforge-test -p 9090:9090 taskforge:${{ github.sha }}
-          sleep 15
-          curl -f http://localhost:9090/actuator/health || exit 1
+          echo "Waiting for app to start..."
+          sleep 20
+          curl -f http://localhost:9090/actuator/health
           docker stop taskforge-test
+          docker rm taskforge-test
+          
