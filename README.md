@@ -1,3 +1,4 @@
+![CI/CD](https://github.com/amangupta982/taskforge-dag-scheduler/actions/workflows/ci.yml/badge.svg)
 # TaskForge — Distributed DAG Task Scheduler ⚙️
 ### Expert-level Java + Spring Boot | System Design + DSA
 
