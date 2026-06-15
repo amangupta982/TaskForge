@@ -6,7 +6,7 @@
 
 A production-grade job scheduling engine that models task dependencies as a **Directed Acyclic Graph**, executes them in topological order with parallel thread pools, and recovers from failures with exponential backoff retries.
 
-![CI/CD](https://github.com/amangupta982/taskforge-dag-scheduler/actions/workflows/ci.yml/badge.svg)
+![CI/CD](https://github.com/amangupta982/TaskForge/actions/workflows/ci.yml/badge.svg)
 ![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-6DB33F?logo=springboot&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
@@ -48,8 +48,8 @@ TaskForge is a **DAG-based job scheduling engine** built in Java that mirrors ho
 ### Run Locally
 
 ```bash
-git clone https://github.com/amangupta982/taskforge-dag-scheduler.git
-cd taskforge-dag-scheduler
+git clone https://github.com/amangupta982/TaskForge.git
+cd TaskForge
 mvn spring-boot:run
 ```
 
@@ -457,18 +457,13 @@ You submit a list of tasks and their dependency rules. TaskForge handles the res
 
 ## 🤝 Contributing
 
-Contributions are welcome! To get started:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -m "Add my feature"`
-4. Push to the branch: `git push origin feature/my-feature`
-5. Open a Pull Request
-
-Please ensure all tests pass before submitting:
+Contributions are welcome! Please read the **[Contributing Guide](CONTRIBUTING.md)** for details on our development workflow, commit conventions, and code style.
 
 ```bash
-mvn test
+# Quick start for contributors
+git clone https://github.com/<your-username>/TaskForge.git
+cd TaskForge
+mvn test   # ensure everything passes
 ```
 
 ---
