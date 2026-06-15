@@ -1,32 +1,85 @@
-# TaskForge ⚙️
+<div align="center">
+
+# ⚙️ TaskForge
+
 ### Distributed DAG Task Scheduler & Executor
 
+A production-grade job scheduling engine that models task dependencies as a **Directed Acyclic Graph**, executes them in topological order with parallel thread pools, and recovers from failures with exponential backoff retries.
+
 ![CI/CD](https://github.com/amangupta982/taskforge-dag-scheduler/actions/workflows/ci.yml/badge.svg)
-![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen?logo=springboot)
-![Docker](https://img.shields.io/badge/Docker-ready-blue?logo=docker)
-![License](https://img.shields.io/badge/License-MIT-lightgrey)
+![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-6DB33F?logo=springboot&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-A31F34)
+![Tests](https://img.shields.io/badge/Tests-26%20Passing-22C55E?logo=junit5&logoColor=white)
 
-A production-grade job scheduling engine that models task dependencies as a **Directed Acyclic Graph (DAG)**, executes them in topological order using a **Java thread pool**, detects cycles via **DFS 3-color algorithm**, computes the **critical path using dynamic programming**, and schedules by priority with **exponential backoff retries**.
+[Quick Start](#-quick-start) · [API Reference](#-api-reference) · [Architecture](#-architecture) · [Algorithms](#-algorithms--data-structures) · [Testing](#-testing-scenarios) · [Contributing](#-contributing)
 
-> Mirrors how Apache Airflow, GitHub Actions, and AWS Step Functions work under the hood.
+</div>
 
 ---
 
-## Demo
+## 📖 Overview
+
+TaskForge is a **DAG-based job scheduling engine** built in Java that mirrors how systems like Apache Airflow, GitHub Actions, and AWS Step Functions work under the hood. It accepts a set of tasks with dependency rules, validates the graph, computes the optimal execution strategy, and runs tasks in parallel — automatically retrying failures with exponential backoff.
+
+### Key Capabilities
+
+- **Cycle Detection** — DFS 3-color algorithm rejects invalid circular dependencies at submission time
+- **Topological Ordering** — Kahn's BFS algorithm computes a valid execution sequence
+- **Critical Path Analysis** — Dynamic programming identifies the minimum possible completion time
+- **Parallel Execution** — Independent tasks run concurrently via a configurable thread pool
+- **Priority Scheduling** — Max-heap priority queue ensures high-priority tasks execute first
+- **Fault Tolerance** — Exponential backoff retries (2s → 4s → 8s) with configurable max attempts
+- **Real-time Monitoring** — Per-task status, progress percentage, and timing via REST API
+
+---
+
+## ⚡ Quick Start
+
+### Prerequisites
+
+| Requirement | Version |
+|:--|:--|
+| Java (JDK) | 21+ |
+| Maven | 3.8+ |
+| Docker | *(optional)* |
+
+### Run Locally
 
 ```bash
-# Start the server
+git clone https://github.com/amangupta982/taskforge-dag-scheduler.git
+cd taskforge-dag-scheduler
 mvn spring-boot:run
+```
 
-# Run the built-in CI/CD pipeline demo (6 tasks, parallel execution)
+### Run with Docker
+
+```bash
+docker build -t taskforge .
+docker run -p 9090:9090 taskforge
+```
+
+### Verify It's Running
+
+```bash
+curl http://localhost:9090/actuator/health
+# → {"status":"UP"}
+```
+
+### Try the Demo
+
+```bash
+# Launch the built-in CI/CD pipeline (6 tasks, parallel execution)
 curl -X POST http://localhost:9090/api/jobs/demo
 
-# Poll for live status
+# Poll for live status (replace {jobId} with the returned ID)
 curl http://localhost:9090/api/jobs/{jobId}/status
 ```
 
-**Sample response:**
+<details>
+<summary><strong>📋 Sample Response</strong></summary>
+
 ```json
 {
   "status": "COMPLETED",
@@ -38,71 +91,108 @@ curl http://localhost:9090/api/jobs/{jobId}/status
 }
 ```
 
----
-
-## Architecture
-
-```
-REST API (Spring Boot :9090)
-└── JobController
-      │
-      ▼
-JobOrchestrator (master coordinator)
-├── DAGValidator         → CycleDetector (DFS 3-color) + TopologicalSorter (Kahn's BFS)
-├── CriticalPathFinder   → DP on topologically sorted DAG
-└── TaskExecutor         → ThreadPoolExecutor + CountDownLatch
-      │
-      ▼
-PriorityTaskScheduler    → max-heap PriorityQueue (ReentrantLock)
-DependencyTracker        → ConcurrentHashMap<taskId, AtomicInteger>
-RetryManager             → ScheduledExecutorService + exponential backoff
-```
+</details>
 
 ---
 
-## DSA Concepts
+## 🏗 Architecture
 
-| Algorithm | Complexity | Role in TaskForge |
-|---|---|---|
-| DFS 3-color cycle detection | O(V+E) | Rejects cyclic DAGs at submission time |
-| Kahn's topological sort | O(V+E) | Computes valid task execution ordering |
-| DP critical path | O(V+E) | Finds minimum possible job completion time |
-| Max-heap PriorityQueue | O(log N) | Priority-based task scheduling |
-| ThreadPoolExecutor | O(1) dispatch | Parallel execution of independent tasks |
-| Exponential backoff | O(1) | Retry failed tasks: 2s → 4s → 8s → DEAD |
-| Union-Find DSU | O(α(N)) | Connected component analysis |
+```
+                          ┌───────────────────────────┐
+                          │   REST API (Spring Boot)   │
+                          │       :9090                │
+                          └─────────┬─────────────────┘
+                                    │
+                          ┌─────────▼─────────────────┐
+                          │     JobOrchestrator        │
+                          │   (master coordinator)     │
+                          └─────────┬─────────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+    ┌─────────▼──────────┐  ┌──────▼──────────┐  ┌───────▼──────────┐
+    │    DAGValidator     │  │ CriticalPath    │  │   TaskExecutor   │
+    │                     │  │ Finder          │  │                  │
+    │  ┌───────────────┐  │  │  DP on topo-    │  │  ThreadPool +    │
+    │  │ CycleDetector │  │  │  sorted DAG     │  │  CountDownLatch  │
+    │  │ (DFS 3-color) │  │  │                 │  │                  │
+    │  ├───────────────┤  │  └─────────────────┘  └────────┬─────────┘
+    │  │ TopoSorter    │  │                                │
+    │  │ (Kahn's BFS)  │  │                    ┌───────────┼───────────┐
+    │  └───────────────┘  │                    │           │           │
+    └─────────────────────┘           ┌────────▼───┐ ┌─────▼────┐ ┌───▼──────────┐
+                                      │ Priority   │ │Dependency│ │ RetryManager │
+                                      │ Scheduler  │ │ Tracker  │ │              │
+                                      │ (max-heap) │ │(in-degree│ │ exp backoff  │
+                                      │+Reentrant  │ │ map)     │ │ 2^n seconds  │
+                                      │ Lock       │ │          │ │              │
+                                      └────────────┘ └──────────┘ └──────────────┘
+```
+
+### Execution Flow
+
+```
+ Submit Job ──▶ Validate DAG ──▶ Compute Critical Path ──▶ Execute
+                  │                     │                      │
+                  ├─ Cycle detection    ├─ Topological sort    ├─ Enqueue ready tasks
+                  ├─ Topological sort   ├─ DP longest path     ├─ Worker threads pick up
+                  └─ Reference check    └─ Path backtrack      ├─ On success → unblock successors
+                                                               ├─ On failure → exp backoff retry
+                                                               └─ All done → mark COMPLETED
+```
+
+### Task Lifecycle
+
+```
+PENDING ──▶ READY ──▶ RUNNING ──┬──▶ DONE
+                                │
+                                └──▶ FAILED ──▶ (retry) ──▶ RUNNING
+                                         │
+                                         └──▶ DEAD (max retries exhausted)
+```
 
 ---
 
-## Quick Start
+## 🧮 Algorithms & Data Structures
 
-### Prerequisites
-- Java 21+
-- Maven 3.8+
-- Docker (optional)
-
-### Run locally
-```bash
-git clone https://github.com/amangupta982/taskforge-dag-scheduler.git
-cd taskforge-dag-scheduler
-mvn spring-boot:run
-```
-
-### Run with Docker
-```bash
-docker build -t taskforge .
-docker run -p 9090:9090 taskforge
-```
+| Algorithm / Structure | Time Complexity | Space | Purpose |
+|:--|:--|:--|:--|
+| DFS 3-color cycle detection | O(V + E) | O(V) | Reject cyclic DAGs at submission time |
+| Kahn's topological sort | O(V + E) | O(V) | Compute a valid task execution ordering |
+| DP critical path (longest path) | O(V + E) | O(V) | Find the minimum possible job completion time |
+| Max-heap `PriorityQueue` | O(log N) insert/poll | O(N) | Priority-based task scheduling |
+| `ThreadPoolExecutor` | O(1) dispatch | — | Parallel execution of independent tasks |
+| `CountDownLatch` | O(1) per op | O(1) | Synchronize job completion across threads |
+| `ConcurrentHashMap` + `AtomicInteger` | O(1) amortized | O(V) | Thread-safe in-degree tracking |
+| Exponential backoff | O(1) | O(1) | Retry failed tasks: 2s → 4s → 8s → DEAD |
 
 ---
 
-## API Reference
+## 📡 API Reference
 
-### Submit a job
+Base URL: `http://localhost:9090`
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|:--|:--|:--|
+| `POST` | `/api/jobs` | Submit a new job — validates DAG, computes critical path |
+| `POST` | `/api/jobs/{id}/execute` | Start execution of a validated job |
+| `POST` | `/api/jobs/{id}/execute?failureRate=0.3` | Execute with simulated failures (for testing retries) |
+| `GET` | `/api/jobs/{id}/status` | Real-time status — per-task progress, critical path, timing |
+| `GET` | `/api/jobs/{id}/dag` | DAG adjacency list + node metadata (for visualization) |
+| `GET` | `/api/jobs` | List all submitted jobs |
+| `DELETE` | `/api/jobs/{id}` | Cancel a running job |
+| `POST` | `/api/jobs/demo` | Run the built-in CI/CD pipeline demo |
+
+### Submit a Job
+
 ```http
 POST /api/jobs
 Content-Type: application/json
+```
 
+```json
 {
   "name": "My Pipeline",
   "tasks": [
@@ -115,33 +205,43 @@ Content-Type: application/json
 }
 ```
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/jobs` | Submit a new job (validates DAG, computes critical path) |
-| POST | `/api/jobs/{id}/execute` | Execute a validated job |
-| POST | `/api/jobs/{id}/execute?failureRate=0.3` | Execute with 30% simulated failures (tests retry) |
-| GET | `/api/jobs/{id}/status` | Real-time status — per-task progress, critical path, timing |
-| GET | `/api/jobs/{id}/dag` | DAG adjacency list + node metadata for visualization |
-| GET | `/api/jobs` | List all submitted jobs |
-| DELETE | `/api/jobs/{id}` | Cancel a running job |
-| POST | `/api/jobs/demo` | Run the built-in CI/CD pipeline demo |
+<details>
+<summary><strong>Response — 201 Created</strong></summary>
+
+```json
+{
+  "jobId": "abc-123",
+  "jobName": "My Pipeline",
+  "status": "VALIDATED",
+  "totalTasks": 2,
+  "criticalPath": ["a", "b"],
+  "criticalPathDurationMs": 1500,
+  "message": "Job created and validated. POST /api/jobs/abc-123/execute to run."
+}
+```
+
+</details>
 
 ---
 
-## Testing Scenarios
+## 🧪 Testing Scenarios
 
-### 1. Basic demo
+### 1. Run the Demo Pipeline
+
 ```bash
 curl -X POST http://localhost:9090/api/jobs/demo
 curl http://localhost:9090/api/jobs/{jobId}/status
 ```
 
-### 2. Test retry with simulated failures
+### 2. Test Retry with Simulated Failures
+
 ```bash
+# 30% of tasks will randomly fail — watch exponential backoff in logs
 curl -X POST "http://localhost:9090/api/jobs/{jobId}/execute?failureRate=0.3"
 ```
 
-### 3. Cycle detection — should return 400
+### 3. Cycle Detection (should return 400)
+
 ```bash
 curl -X POST http://localhost:9090/api/jobs \
   -H "Content-Type: application/json" \
@@ -155,14 +255,18 @@ curl -X POST http://localhost:9090/api/jobs \
   }'
 ```
 
-Expected: `400 Bad Request — Cycle detected: [a, b, a]`
+> Expected: `400 Bad Request` — `Cycle detected: [a, b, a]`
 
-### 4. 50-task enterprise pipeline
+### 4. Large-Scale Pipeline (25 tasks)
+
+<details>
+<summary><strong>Expand: 25-task enterprise CI/CD pipeline</strong></summary>
+
 ```bash
 curl -X POST http://localhost:9090/api/jobs \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Enterprise CI/CD — 50 Tasks",
+    "name": "Enterprise CI/CD — 25 Tasks",
     "tasks": [
       {"id":"checkout","name":"Git Checkout","priority":10,"durationMs":300,"maxRetries":2},
       {"id":"deps","name":"Install Dependencies","priority":9,"durationMs":800,"maxRetries":2},
@@ -217,99 +321,166 @@ curl -X POST http://localhost:9090/api/jobs \
   }'
 ```
 
-### 5. Run all unit tests
+</details>
+
+### 5. Run Unit Tests
+
+```bash
+mvn test
+```
+
+> **26 tests** across 4 test classes — covers cycle detection, topological sorting, critical path computation, and end-to-end job execution.
+
+---
+
+## 📁 Project Structure
+
+```
+src/main/java/com/taskforge/
+│
+├── model/                              # Domain models
+│   ├── Task.java                       # Graph node — AtomicReference status, backoff delay
+│   ├── Job.java                        # Job container — ConcurrentHashMap task registry
+│   ├── DAG.java                        # Adjacency list — in-degree map for Kahn's sort
+│   ├── TaskStatus.java                 # PENDING → READY → RUNNING → DONE / FAILED / DEAD
+│   └── JobStatus.java                  # CREATED → VALIDATED → RUNNING → COMPLETED / FAILED
+│
+├── algorithm/                          # Core graph algorithms
+│   ├── CycleDetector.java              # DFS 3-color — WHITE / GRAY / BLACK marking
+│   ├── TopologicalSorter.java          # Kahn's BFS — in-degree queue processing
+│   └── CriticalPathFinder.java         # DP longest path — earliest start times per task
+│
+├── scheduler/                          # Scheduling & resilience
+│   ├── PriorityTaskScheduler.java      # Max-heap PriorityQueue + ReentrantLock
+│   ├── DependencyTracker.java          # ConcurrentHashMap + AtomicInteger in-degree
+│   └── RetryManager.java              # ScheduledExecutorService + 2^n backoff
+│
+├── executor/                           # Thread pool execution
+│   ├── TaskExecutor.java               # ThreadPoolExecutor + CountDownLatch orchestration
+│   └── TaskWorker.java                 # Runnable per task — success/failure callbacks
+│
+├── service/                            # Business logic
+│   ├── JobOrchestrator.java            # @Async coordinator — validate → analyse → execute
+│   ├── DAGValidator.java               # Facade: cycle check + topo sort + reference check
+│   └── JobService.java                 # CRUD + in-memory ConcurrentHashMap job registry
+│
+├── controller/
+│   └── JobController.java              # 8 REST endpoints
+│
+├── dto/                                # Request/response DTOs
+│   ├── JobSubmitRequest.java           # Validated job submission payload
+│   ├── JobStatusResponse.java          # Status response with task details
+│   └── DAGResponse.java               # DAG visualization data
+│
+└── config/
+    ├── AsyncConfig.java                # Spring thread pool — core=4, max=10
+    └── GlobalExceptionHandler.java     # Clean JSON error responses
+```
+
+---
+
+## 🔄 CI/CD Pipeline
+
+Every push to `main` triggers the GitHub Actions workflow:
+
+```
+Push to main
+     │
+     ▼
+ Build & Test ─────────────────────────────┐
+     │                                     │
+     ▼ (on success, in parallel)           │
+  ┌──────────────────────┐  ┌──────────────▼──────────┐
+  │  Code Quality Check  │  │  Docker Build & Verify  │
+  └──────────────────────┘  └─────────────────────────┘
+```
+
+| Job | Description |
+|:--|:--|
+| **Build & Test** | Compiles 23 source files, runs 26 tests, uploads JAR artifact |
+| **Code Quality** | Verifies zero compilation warnings, confirms all tests pass |
+| **Docker Build** | Builds multi-stage image, starts container, validates `/actuator/health` |
+
+---
+
+## 🐳 Docker
+
+The project uses a **multi-stage Dockerfile** for optimized image size:
+
+| Stage | Base Image | Purpose |
+|:--|:--|:--|
+| Builder | `maven:3.9.5-eclipse-temurin-21` | Compile and package |
+| Runtime | `eclipse-temurin:21-jre-alpine` | Minimal runtime (~200 MB) |
+
+The container includes a built-in healthcheck that polls `/actuator/health` every 30 seconds.
+
+```bash
+# Build
+docker build -t taskforge .
+
+# Run
+docker run -p 9090:9090 taskforge
+
+# Run with custom failure rate for testing
+docker run -p 9090:9090 -e FAILURE_RATE=0.3 taskforge
+```
+
+---
+
+## ⚙️ Configuration
+
+Key settings in [`application.yml`](src/main/resources/application.yml):
+
+| Property | Default | Description |
+|:--|:--|:--|
+| `server.port` | `9090` | HTTP server port |
+| `logging.level.com.taskforge` | `DEBUG` | Application log level |
+| Thread pool (core) | `4` | Minimum async worker threads |
+| Thread pool (max) | `10` | Maximum async worker threads |
+| Execution timeout | `10 min` | Maximum job execution duration |
+
+---
+
+## 📌 How It Works
+
+You submit a list of tasks and their dependency rules. TaskForge handles the rest:
+
+1. **Validates** — DFS 3-color marks each node WHITE → GRAY → BLACK. If a GRAY node is revisited, a back-edge (cycle) is detected and the job is rejected instantly with the cycle path.
+
+2. **Plans** — Kahn's algorithm peels off zero-in-degree nodes layer by layer to produce the topological ordering. Then DP computes `dp[v] = max(dp[u] + duration[v])` for all predecessors to find the critical path — the longest chain that defines minimum completion time.
+
+3. **Executes** — Tasks with zero pending dependencies enter a max-heap priority queue (guarded by `ReentrantLock`). Worker threads dequeue and execute them. When a task completes, `DependencyTracker` decrements successors' in-degree counters atomically — any that hit zero are enqueued immediately.
+
+4. **Recovers** — Failed tasks are retried with exponential backoff via `ScheduledExecutorService`. Delay doubles each attempt (2s → 4s → 8s). After exhausting `maxRetries`, the task is marked `DEAD` and the `CountDownLatch` counts down to prevent deadlock.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! To get started:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit your changes: `git commit -m "Add my feature"`
+4. Push to the branch: `git push origin feature/my-feature`
+5. Open a Pull Request
+
+Please ensure all tests pass before submitting:
+
 ```bash
 mvn test
 ```
 
 ---
 
-## Project Structure
+## 📝 License
 
-```
-src/main/java/com/taskforge/
-├── model/
-│   ├── Task.java                   # Graph node — AtomicReference status, backoff delay
-│   ├── Job.java                    # Job container — ConcurrentHashMap task registry
-│   ├── DAG.java                    # Adjacency list — in-degree map for Kahn's sort
-│   ├── TaskStatus.java             # PENDING → READY → RUNNING → DONE / FAILED / DEAD
-│   └── JobStatus.java              # CREATED → VALIDATED → RUNNING → COMPLETED / FAILED
-├── algorithm/
-│   ├── CycleDetector.java          # DFS 3-color — WHITE / GRAY / BLACK marking
-│   ├── TopologicalSorter.java      # Kahn's BFS — in-degree queue processing
-│   └── CriticalPathFinder.java     # DP longest path — earliest start times per task
-├── scheduler/
-│   ├── PriorityTaskScheduler.java  # Max-heap PriorityQueue + ReentrantLock
-│   ├── DependencyTracker.java      # ConcurrentHashMap + AtomicInteger in-degree
-│   └── RetryManager.java           # ScheduledExecutorService + 2^n backoff
-├── executor/
-│   ├── TaskExecutor.java           # ThreadPoolExecutor + CountDownLatch orchestration
-│   └── TaskWorker.java             # Runnable per task — success/failure callbacks
-├── service/
-│   ├── JobOrchestrator.java        # @Async coordinator — validate → analyse → execute
-│   ├── DAGValidator.java           # Facade: cycle check + topo sort + reference check
-│   └── JobService.java             # CRUD + in-memory ConcurrentHashMap job registry
-├── controller/
-│   └── JobController.java          # 8 REST endpoints
-└── config/
-    ├── AsyncConfig.java            # Spring thread pool — core=4, max=10
-    └── GlobalExceptionHandler.java # Clean JSON error responses
-```
+This project is licensed under the [MIT License](LICENSE) — free to use, fork, and build on.
 
 ---
 
-## CI/CD Pipeline
+<div align="center">
 
-Every push to `main` triggers three GitHub Actions jobs:
+**Built with** ☕ **Java 21 · Spring Boot 3.2 · Graph Algorithms**
 
-```
-Push to main
-     ↓
-Build & Test (runs first)
-     ↓ passes
-     ├── Code Quality Check  ──┐  (run in parallel)
-     └── Docker Build Check  ──┘
-              ↓
-        All green → ✅
-```
-
-| Job | What it does |
-|---|---|
-| Build & Test | Compiles 23 source files, runs 26 tests, uploads JAR artifact |
-| Code Quality | Verifies compilation warnings, confirms all tests pass |
-| Docker Build | Builds image, starts container, hits `/actuator/health` to verify |
-
----
-
-## How It Works — Simple Explanation
-
-You send a list of tasks and their dependency rules. TaskForge does four things automatically:
-
-1. **Validates** — DFS 3-color checks for impossible circular dependencies. Rejected instantly if found.
-2. **Plans** — Kahn's topological sort finds the valid execution order. DP finds the critical path (slowest chain).
-3. **Executes** — Tasks with no pending dependencies go into a max-heap priority queue. Worker threads pick them up. Independent tasks run truly in parallel.
-4. **Recovers** — Failed tasks retry with exponential backoff (2s → 4s → 8s). After max retries, task is marked DEAD.
-
----
-
-## Resume Bullets
-
-```
-• Designed a DAG-based job scheduling engine in Java — Kahn's topological sort (O(V+E))
-  for valid execution ordering; DFS 3-color cycle detection rejects invalid graphs at submission
-
-• Critical path analysis via DP on topologically sorted DAG; parallel execution via Java
-  ThreadPoolExecutor + CountDownLatch reduced job completion time by up to 60%
-
-• Priority scheduling with max-heap PriorityQueue; exponential backoff retry (2^n seconds);
-  thread-safe state via ConcurrentHashMap + AtomicInteger; Spring Boot REST API (8 endpoints)
-
-• CI/CD pipeline via GitHub Actions — automated build, test, and Docker verification
-  on every push; containerized with Docker; health monitored via Spring Actuator
-```
-
----
-
-## License
-
-MIT — free to use, fork, and build on.
+</div>
